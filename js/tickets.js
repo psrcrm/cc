@@ -35,7 +35,7 @@ const Tickets = {
   ],
 
   TOWERS: ['Tower A01','Tower A02','Tower A03','Tower A04','Tower A05','Tower A06','Tower A07','Tower A08','Tower A09'],
-  FLATS: Array.from({length:20}, (_,i) => String(i+101)),
+  FLATS: Array.from({length:6}, (_,i) => String(i+101)),
 
   buildTicketId() {
     const ts  = new Date().toISOString().replace(/[-:T.Z]/g,'').slice(0,14);
