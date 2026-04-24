@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#1B6EF3">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ApartmentCare">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<title>ApartmentCare</title>
+
+<!-- *** SW KILLER — runs before everything, nukes old service workers *** -->
+<script>
+(function(){
+  var CURRENT = 'ac-20250421';
+  if (!('serviceWorker' in navigator)) return;
+  // Unregister every SW that is not our current version
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    regs.forEach(function(reg){
+      reg.unregister();
+      console.log('[KILLER] Unregistered SW:', reg.scope);
+    });
+  });
+  // Wipe every cache that is not current
+  if ('caches' in window) {
+    caches.keys().then(function(keys){
+      keys.forEach(function(k){
+        if (k !== CURRENT) {
+          caches.delete(k);
+          console.log('[KILLER] Deleted cache:', k);
+        }
+      });
+    });
+  }
+})();
+</script>
+
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- SPLASH -->
+  <div id="screen-splash" class="screen active">
+    <div class="splash-content">
+      <div class="splash-icon">🏢</div>
+      <div class="splash-title">ApartmentCare</div>
+      <div class="splash-sub">Workforce Management</div>
+      <div class="spinner"></div>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div id="screen-login" class="screen">
+    <div class="login-wrap">
+      <div class="login-header">
+        <div class="login-logo">🏢</div>
+        <h1>Welcome back</h1>
+        <p>Enter your mobile &amp; PIN to continue</p>
+      </div>
+      <div class="card">
+        <div class="field">
+          <label class="field-label">Mobile Number</label>
+          <input id="login-mobile" type="tel" class="field-input" placeholder="Enter 10-digit mobile" maxlength="10" inputmode="numeric">
+        </div>
+        <div class="field">
+          <label class="field-label">PIN</label>
+          <div class="pin-dots" id="pin-dots">
+            <div class="dot" id="dot-0"></div>
+            <div class="dot" id="dot-1"></div>
+            <div class="dot" id="dot-2"></div>
+            <div class="dot" id="dot-3"></div>
+          </div>
+          <div class="pin-pad">
+            <button class="pin-btn" data-val="1">1</button>
+            <button class="pin-btn" data-val="2">2</button>
+            <button class="pin-btn" data-val="3">3</button>
+            <button class="pin-btn" data-val="4">4</button>
+            <button class="pin-btn" data-val="5">5</button>
+            <button class="pin-btn" data-val="6">6</button>
+            <button class="pin-btn" data-val="7">7</button>
+            <button class="pin-btn" data-val="8">8</button>
+            <button class="pin-btn" data-val="9">9</button>
+            <button class="pin-btn pin-clear" data-action="clear">C</button>
+            <button class="pin-btn" data-val="0">0</button>
+            <button class="pin-btn pin-del" data-action="del">⌫</button>
+          </div>
+        </div>
+        <div id="login-error" class="error-msg"></div>
+        <button id="login-btn" class="btn btn-primary btn-full btn-lg">Login</button>
+      </div>
+      <div class="login-hint">
+        <b>Demo accounts:</b><br>
+        Worker: <code>9876543210</code> PIN <code>1234</code><br>
+        Admin: <code>0000000000</code> PIN <code>9999</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- WORKER HOME -->
+  <div id="screen-worker-home" class="screen">
+    <div class="hero-banner" id="worker-hero">
+      <div class="hero-greeting" id="hero-greeting">Good morning</div>
+      <div class="hero-name" id="hero-name">Worker</div>
+      <div class="hero-stats" id="hero-stats"></div>
+      <div class="hero-progress">
+        <div class="prog-label"><span>Today's progress</span><span id="hero-pct">0%</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="hero-fill"></div></div>
+      </div>
+    </div>
+    <div class="filter-bar" id="task-filter-bar">
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="pending">Pending</button>
+      <button class="filter-chip" data-filter="completed">Done</button>
+      <button class="filter-chip" data-filter="missed">Missed</button>
+    </div>
+    <div class="task-list" id="task-list"></div>
+    <div class="bottom-nav" id="worker-nav">
+      <button class="nav-item active" data-screen="worker-home" data-icon="🏠" data-label="Home"></button>
+      <button class="nav-item" data-screen="worker-calendar" data-icon="📅" data-label="Calendar"></button>
+      <button class="nav-item" data-screen="worker-history" data-icon="📋" data-label="History"></button>
+      <button class="nav-item" data-screen="worker-settings" data-icon="⚙️" data-label="Settings"></button>
+    </div>
+  </div>
+
+  <!-- TASK FORM -->
+  <div id="screen-task-form" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="task-back">←</button>
+      <div class="topbar-title" id="task-form-title">Task</div>
+      <div class="badge" id="task-form-badge"></div>
+    </div>
+    <div class="scroll-area" id="task-form-body"></div>
+    <div class="form-footer" id="task-form-footer"></div>
+  </div>
+
+  <!-- WORKER CALENDAR -->
+  <div id="screen-worker-calendar" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="wcal-back">←</button>
+      <div class="topbar-title">My Calendar</div>
+    </div>
+    <div class="scroll-area">
+      <div class="card">
+        <div class="cal-header">
+          <button class="cal-nav-btn" id="wcal-prev">‹</button>
+          <div class="cal-month-title" id="wcal-month"></div>
+          <button class="cal-nav-btn" id="wcal-next">›</button>
+        </div>
+        <div class="cal-grid" id="wcal-grid"></div>
+      </div>
+      <div class="card" id="wcal-day-detail" style="display:none"></div>
+    </div>
+    <div class="bottom-nav">
+      <button class="nav-item" data-screen="worker-home" data-icon="🏠" data-label="Home"></button>
+      <button class="nav-item active" data-icon="📅" data-label="Calendar"></button>
+      <button class="nav-item" data-screen="worker-history" data-icon="📋" data-label="History"></button>
+      <button class="nav-item" data-screen="worker-settings" data-icon="⚙️" data-label="Settings"></button>
+    </div>
+  </div>
+
+  <!-- WORKER HISTORY -->
+  <div id="screen-worker-history" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="whist-back">←</button>
+      <div class="topbar-title">Task History</div>
+    </div>
+    <div class="scroll-area" id="worker-history-list"></div>
+    <div class="bottom-nav">
+      <button class="nav-item" data-screen="worker-home" data-icon="🏠" data-label="Home"></button>
+      <button class="nav-item" data-screen="worker-calendar" data-icon="📅" data-label="Calendar"></button>
+      <button class="nav-item active" data-icon="📋" data-label="History"></button>
+      <button class="nav-item" data-screen="worker-settings" data-icon="⚙️" data-label="Settings"></button>
+    </div>
+  </div>
+
+  <!-- WORKER SETTINGS -->
+  <div id="screen-worker-settings" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="wset-back">←</button>
+      <div class="topbar-title">Settings</div>
+    </div>
+    <div class="scroll-area" id="worker-settings-body"></div>
+    <div class="bottom-nav">
+      <button class="nav-item" data-screen="worker-home" data-icon="🏠" data-label="Home"></button>
+      <button class="nav-item" data-screen="worker-calendar" data-icon="📅" data-label="Calendar"></button>
+      <button class="nav-item" data-screen="worker-history" data-icon="📋" data-label="History"></button>
+      <button class="nav-item active" data-icon="⚙️" data-label="Settings"></button>
+    </div>
+  </div>
+
+  <!-- ADMIN HOME -->
+  <div id="screen-admin-home" class="screen">
+    <div class="topbar">
+      <div class="topbar-title">Admin Panel</div>
+      <div id="notif-badge" style="display:none;background:var(--rose);color:#fff;border-radius:20px;padding:2px 8px;font-size:12px;font-weight:700;min-width:22px;text-align:center"></div>
+      <button class="btn btn-sm btn-ghost" id="admin-logout-btn">Logout</button>
+    </div>
+    <div class="admin-tabs" id="admin-tabs">
+      <button class="admin-tab active" data-tab="dashboard">Dashboard</button>
+      <button class="admin-tab" data-tab="tickets">Tickets</button>
+      <button class="admin-tab" data-tab="workers">Workers</button>
+      <button class="admin-tab" data-tab="templates">Templates</button>
+      <button class="admin-tab" data-tab="assign">Assign</button>
+      <button class="admin-tab" data-tab="calendar">Calendar</button>
+      <button class="admin-tab" data-tab="settings">Settings</button>
+    </div>
+    <div class="scroll-area" id="admin-content"></div>
+  </div>
+
+  <!-- ADMIN: ADD WORKER -->
+  <div id="screen-admin-add-worker" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="add-worker-back">←</button>
+      <div class="topbar-title">Add Worker</div>
+    </div>
+    <div class="scroll-area" id="add-worker-body"></div>
+  </div>
+
+  <!-- ADMIN: ADD TEMPLATE -->
+  <div id="screen-admin-add-template" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="add-tpl-back">←</button>
+      <div class="topbar-title" id="add-tpl-title">New Template</div>
+    </div>
+    <div class="scroll-area" id="add-tpl-body"></div>
+  </div>
+
+  <!-- ADMIN: ASSIGN -->
+  <div id="screen-admin-assign" class="screen">
+    <div class="topbar">
+      <button class="back-btn" id="assign-back">←</button>
+      <div class="topbar-title">Assign Tasks</div>
+      <div class="badge badge-blue" id="assign-step-label">Step 1/4</div>
+    </div>
+    <div class="assign-steps" id="assign-steps-ui"></div>
+    <div class="scroll-area" id="assign-content"></div>
+    <div class="form-footer" id="assign-footer"></div>
+  </div>
+
+  <!-- OFFLINE BANNER -->
+  <div id="offline-banner" class="offline-banner" style="display:none">
+    📶 Offline — submissions saved locally, will sync when online
+  </div>
+
+  <!-- TOAST -->
+  <div id="toast" class="toast"></div>
+
+</div>
+
+<!-- Firebase SDK (v9 compat mode) -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
+<script src="js/db.js"></script>
+<script src="js/firebase.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/notifications.js"></script>
+<script src="js/tickets.js"></script>
+<script src="js/tasks.js"></script>
+<script src="js/admin.js"></script>
+<script src="js/calendar.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
