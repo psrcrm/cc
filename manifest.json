@@ -1,0 +1,17 @@
+{
+  "name": "ApartmentCare - Workforce Management",
+  "short_name": "ApartmentCare",
+  "description": "Gated community workforce management PWA",
+  "start_url": "/wfm/",
+  "scope": "/wfm/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1B6EF3",
+  "theme_color": "#1B6EF3",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "categories": ["productivity", "utilities", "business"],
+  "lang": "en-IN"
+}
