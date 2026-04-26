@@ -35,10 +35,11 @@ const Admin = {
     }
   },
 
-  async renderDashboard() {
+  async renderDashboard(targetDate) {
     const today = new Date().toISOString().split('T')[0];
+    const date  = targetDate || today;
     const allTasks = await Data.getAll('tasks');
-    const todayTasks = allTasks.filter(t => t.date === today);
+    const todayTasks = allTasks.filter(t => t.date === date);
     const total   = todayTasks.length;
     const done    = todayTasks.filter(t => t.status === 'completed').length;
     const pending = todayTasks.filter(t => t.status === 'pending').length;
@@ -54,9 +55,22 @@ const Admin = {
       return { ...w, total: wt.length, done: completed.length, avgDur };
     }).filter(w => w.total > 0);
 
+    const displayDate = new Date(date + 'T12:00:00');
+    const isToday    = date === today;
+    const yesterday  = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+    const yStr       = yesterday.toISOString().split('T')[0];
+    const isYest     = date === yStr;
+
     document.getElementById('admin-content').innerHTML = `
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <button class="chip ${isToday ? 'selected' : ''}" onclick="Admin.renderDashboard('${today}')">Today</button>
+        <button class="chip ${isYest  ? 'selected' : ''}" onclick="Admin.renderDashboard('${yStr}')">Yesterday</button>
+        <input type="date" class="field-input" id="dash-date-pick" value="${date}"
+          style="font-size:12px;padding:5px 10px;width:auto;flex:1;max-width:160px"
+          onchange="Admin.renderDashboard(this.value)">
+      </div>
       <div style="font-size:12px;font-weight:500;color:var(--ink3);margin-bottom:10px">
-        Today · ${new Date().toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})}
+        ${isToday ? 'Today' : isYest ? 'Yesterday' : displayDate.toLocaleDateString('en-IN',{weekday:'long',day:'numeric',month:'long'})} · ${displayDate.toLocaleDateString('en-IN',{day:'numeric',month:'long',year:'numeric'})}
       </div>
       <div class="stats-grid">
         <div class="stat-card"><div class="stat-number" style="color:var(--blue)">${total}</div><div class="stat-label">Assigned</div></div>
@@ -95,10 +109,13 @@ const Admin = {
   async renderWorkers() {
     const workers = await Data.getAll('workers');
     const list = workers.filter(w => w.role !== 'admin');
-    document.getElementById('admin-content').innerHTML = `
-      <button class="btn btn-primary btn-sm" id="add-worker-btn" style="margin-bottom:12px">+ Add Worker</button>
-      <div class="rounded" style="background:var(--surface)">
-        ${list.map(w => `
+    const renderWorkerList = (filter) => {
+      const filtered = list.filter(w =>
+        !filter || w.name.toLowerCase().includes(filter) || w.category.toLowerCase().includes(filter) || w.mobile.includes(filter)
+      );
+      document.getElementById('worker-list-body').innerHTML = filtered.length === 0
+        ? `<div style="padding:20px;text-align:center;color:var(--ink3)">No workers found</div>`
+        : filtered.map(w => `
           <div class="worker-list-item">
             <div class="worker-avatar" style="background:${w.avatarBg};color:${w.avatarColor}">${w.initials}</div>
             <div class="worker-info">
@@ -109,9 +126,21 @@ const Admin = {
               <span class="badge ${w.isActive ? 'badge-done' : 'badge-gray'}">${w.isActive ? 'Active' : 'Inactive'}</span>
               <button class="btn btn-sm btn-ghost" onclick="adminEditWorker('${w.id}')">⋯</button>
             </div>
-          </div>`).join('')}
-      </div>`;
-    document.getElementById('add-worker-btn').addEventListener('click', () => this.showAddWorkerScreen());
+          </div>`).join('');
+    };
+
+    document.getElementById('admin-content').innerHTML = `
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <input type="text" class="field-input" id="worker-search" placeholder="🔍 Search by name, category or mobile…" style="flex:1;font-size:13px;padding:9px 12px">
+        <button class="btn btn-primary btn-sm" id="add-worker-btn">+ Add</button>
+      </div>
+      <div class="rounded" style="background:var(--surface)" id="worker-list-body"></div>`;
+
+    renderWorkerList('');
+    document.getElementById('worker-search').addEventListener('input', function() {
+      renderWorkerList(this.value.trim().toLowerCase());
+    });
+    document.getElementById('add-worker-btn').addEventListener('click', () => Admin.showAddWorkerScreen());
   },
 
   showAddWorkerScreen() {
