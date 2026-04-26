@@ -172,17 +172,31 @@ const Tickets = {
     const badge = this.statusBadgeClass(ticket.status);
     const isEmergency = ticket.priority === 'emergency';
     return `
-      <div class="task-item ticket-item ${isEmergency ? 'emergency-item' : ''}" data-ticket-id="${ticket.id}">
-        <div class="task-icon" style="background:${pri.bg}">${cat.icon}</div>
+      <div class="task-item ticket-item ${isEmergency ? 'emergency-item' : ''}" data-ticket-id="${ticket.id}"
+           style="${isEmergency ? 'border-left:3px solid #E11D48;' : ''}">
+        <div class="task-icon" style="background:${pri.bg};font-size:20px">${cat.icon}</div>
         <div class="task-info">
-          <div class="task-name">${ticket.id}</div>
-          <div class="task-meta">${cat.label} · ${ticket.tower} ${ticket.flatNo} · ${ticket.residentName}</div>
-          ${isEmergency ? '<div style="font-size:11px;font-weight:700;color:#E11D48;margin-top:2px">🚨 EMERGENCY</div>' : ''}
+          <div class="task-name">${ticket.residentName} · ${ticket.tower} ${ticket.flatNo}</div>
+          <div class="task-meta">${cat.label}${isEmergency ? ' · <span style="color:#E11D48;font-weight:700">🚨 EMERGENCY</span>' : ''}</div>
+          <div style="font-size:10px;color:var(--ink3);margin-top:1px;font-family:var(--fm)">${ticket.id}</div>
         </div>
         <div class="badge ${badge}">${this.statusLabel(ticket.status)}</div>
         <div class="task-arrow">›</div>
       </div>`;
   },
+
+  // Preset options per action type — no keyboard needed
+  RESOLVE_OPTIONS: ['Fixed completely', 'Temporary fix done', 'Referred to contractor', 'No issue found', 'Resident not available'],
+  PARTS_OPTIONS: {
+    plumbing:     ['PVC pipe', 'Elbow joint', 'Water valve', 'Tap washer', 'Sealant tape'],
+    electrical:   ['MCB / fuse', 'Switch / socket', 'Wire / cable', 'Bulb / tube light', 'Capacitor'],
+    lift:         ['Rope / cable', 'Button panel', 'Door sensor', 'Controller board', 'Oil / lubricant'],
+    security:     ['Lock / key', 'CCTV cable', 'Power adapter', 'Battery backup', 'Siren unit'],
+    housekeeping: ['Cleaning fluid', 'Mop / broom', 'Bin liner', 'Disinfectant', 'Gloves'],
+    structural:   ['Cement / grout', 'Tiles', 'Paint', 'Sealant', 'Anchor bolts'],
+    default:      ['Spare part needed', 'Consumable', 'Tool required', 'Replacement unit', 'Other'],
+  },
+  ESCALATE_OPTIONS: ['Beyond my skill level', 'Need supervisor decision', 'Safety concern', 'Waiting for specialist', 'Resident complaint escalation'],
 
   // ── Full ticket detail / action screen for worker ─────────────────────────
   async renderTicketDetail(ticketId) {
@@ -192,25 +206,39 @@ const Tickets = {
     const pri = this.getPriorityMeta(ticket.priority);
     const isEmergency = ticket.priority === 'emergency';
 
-    let actionButtons = '';
+    // Action buttons — always shown at top, context-aware
+    let actionHtml = '';
     if (ticket.status === 'open') {
-      actionButtons = `
-        <button class="btn btn-primary btn-full btn-lg" onclick="ticketAction('start','${ticketId}')">▶ Start Working</button>`;
-    } else if (ticket.status === 'in_progress') {
-      actionButtons = `
-        <button class="btn btn-success btn-full btn-lg" onclick="ticketAction('resolve','${ticketId}')">✅ Mark Resolved</button>
-        <button class="btn btn-warn btn-full btn-md" style="margin-top:8px" onclick="ticketAction('parts','${ticketId}')">🔧 Parts Required</button>
-        <button class="btn btn-outline btn-full btn-md" style="margin-top:8px" onclick="ticketAction('escalate','${ticketId}')">⬆ Escalate to Supervisor</button>`;
-    } else if (ticket.status === 'pending_parts') {
-      actionButtons = `
-        <button class="btn btn-success btn-full btn-lg" onclick="ticketAction('resolve','${ticketId}')">✅ Parts Received — Resolve</button>
-        <button class="btn btn-outline btn-full btn-md" style="margin-top:8px" onclick="ticketAction('escalate','${ticketId}')">⬆ Escalate to Supervisor</button>`;
+      actionHtml = `
+        <div class="card" style="padding:12px 14px${isEmergency ? ';border-color:#E11D48;border-width:2px' : ''}">
+          <div style="font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:10px;letter-spacing:.05em">ACTION</div>
+          <button class="btn btn-primary btn-full btn-lg" onclick="ticketAction('start','${ticketId}')">▶ Start Working</button>
+        </div>`;
+    } else if (ticket.status === 'in_progress' || ticket.status === 'pending_parts') {
+      const partsOpts = (this.PARTS_OPTIONS[ticket.category] || this.PARTS_OPTIONS.default)
+        .map(p => `<button class="chip" style="font-size:12px" onclick="ticketPartsPreset('${ticketId}','${p}')">${p}</button>`).join('');
+      const escalateOpts = this.ESCALATE_OPTIONS
+        .map(e => `<button class="chip" style="font-size:12px" onclick="ticketEscalatePreset('${ticketId}','${e}')">${e}</button>`).join('');
+      const resolveOpts = this.RESOLVE_OPTIONS
+        .map(r => `<button class="chip" style="font-size:12px" onclick="ticketResolvePreset('${ticketId}','${r}')">${r}</button>`).join('');
+
+      actionHtml = `
+        <div class="card" style="padding:12px 14px">
+          <div style="font-size:11px;font-weight:700;color:var(--emerald);margin-bottom:8px;letter-spacing:.05em">✅ RESOLVE — tap outcome</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${resolveOpts}</div>
+
+          <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:8px;letter-spacing:.05em">🔧 NEED PARTS — tap what's needed</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">${partsOpts}</div>
+
+          <div style="font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:8px;letter-spacing:.05em">⬆ ESCALATE — tap reason</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">${escalateOpts}</div>
+        </div>`;
     }
 
     const timelineHtml = (ticket.timeline || []).map(t => {
       const d = new Date(t.time);
       return `<div class="tl-item">
-        <div class="tl-dot ${t.action==='resolved'?'g':t.action==='escalate'?'r':''}"></div>
+        <div class="tl-dot ${t.action==='resolved'?'g':t.action==='escalate'||t.action==='reassigned'?'r':''}"></div>
         <div>
           <div class="tl-t">${d.toLocaleDateString('en-IN')} ${d.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit'})} · ${t.by}</div>
           <div class="tl-b">${t.note || t.action}</div>
@@ -219,54 +247,53 @@ const Tickets = {
     }).join('');
 
     return `
-      ${isEmergency ? '<div style="background:#E11D48;color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;font-size:14px;margin-bottom:14px;text-align:center">🚨 EMERGENCY TICKET — IMMEDIATE ACTION REQUIRED</div>' : ''}
+      ${isEmergency ? '<div style="background:#E11D48;color:#fff;padding:10px 14px;border-radius:10px;font-weight:700;font-size:14px;margin-bottom:10px;text-align:center">🚨 EMERGENCY — IMMEDIATE ACTION REQUIRED</div>' : ''}
 
-      <div class="card" style="${isEmergency ? 'border-color:#E11D48;border-width:2px' : ''}">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
+      ${actionHtml}
+
+      <div class="card" style="padding:12px 14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:10px">
           <div>
-            <div style="font-family:var(--fm);font-size:12px;color:var(--ink3);margin-bottom:3px">${ticket.id}</div>
-            <div style="font-size:18px;font-weight:700">${cat.icon} ${cat.label}</div>
+            <div style="font-size:17px;font-weight:700">${cat.icon} ${ticket.residentName}</div>
+            <div style="font-size:13px;color:var(--ink3);margin-top:2px">${ticket.tower} · Flat ${ticket.flatNo}</div>
           </div>
           <div style="text-align:right">
             <div class="badge ${this.statusBadgeClass(ticket.status)}" style="margin-bottom:4px">${this.statusLabel(ticket.status)}</div>
             <div class="badge" style="background:${pri.bg};color:${pri.color}">${pri.label}</div>
           </div>
         </div>
-        <div style="border-top:1px solid var(--line);padding-top:12px">
-          <table style="width:100%;font-size:13px;border-collapse:collapse">
-            <tr><td style="color:var(--ink3);padding:5px 0;width:110px">Resident</td><td style="font-weight:600">${ticket.residentName}</td></tr>
-            <tr><td style="color:var(--ink3);padding:5px 0">Tower / Flat</td><td style="font-weight:600">${ticket.tower} — ${ticket.flatNo}</td></tr>
-            <tr><td style="color:var(--ink3);padding:5px 0">Phone</td><td><a href="tel:${ticket.phone}" style="color:var(--blue);font-weight:600">${ticket.phone || '—'}</a></td></tr>
-            <tr><td style="color:var(--ink3);padding:5px 0">Source</td><td>${this.SOURCES.find(s=>s.id===ticket.source)?.icon || ''} ${this.SOURCES.find(s=>s.id===ticket.source)?.label || ticket.source}</td></tr>
-            <tr><td style="color:var(--ink3);padding:5px 0">Created</td><td>${new Date(ticket.createdAt).toLocaleString('en-IN')}</td></tr>
-          </table>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--line)">
+          <span style="font-size:22px">📞</span>
+          <a href="tel:${ticket.phone}" style="font-size:15px;font-weight:700;color:var(--blue);text-decoration:none">${ticket.phone || 'No phone'}</a>
+          <span style="font-size:12px;color:var(--ink3);margin-left:auto">${cat.label}</span>
         </div>
       </div>
 
-      <div class="card">
-        <div style="font-size:12px;font-weight:700;color:var(--ink3);margin-bottom:6px">COMPLAINT DESCRIPTION</div>
+      <div class="card" style="padding:12px 14px">
+        <div style="font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:6px;letter-spacing:.05em">COMPLAINT</div>
         <div style="font-size:14px;line-height:1.7;color:var(--ink)">${ticket.description || 'No description provided'}</div>
         ${ticket.photoUrl ? `<img src="${ticket.photoUrl}" style="width:100%;border-radius:8px;margin-top:10px;max-height:200px;object-fit:cover">` : ''}
       </div>
 
       ${ticket.partsRequired?.length ? `
-        <div class="card" style="border-color:var(--amber)">
-          <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:6px">🔧 PARTS REQUIRED</div>
-          ${ticket.partsRequired.map(p => `<div style="font-size:13px;padding:4px 0;border-bottom:1px solid var(--line)">${p}</div>`).join('')}
+        <div class="card" style="padding:12px 14px;border-color:var(--amber)">
+          <div style="font-size:11px;font-weight:700;color:var(--amber);margin-bottom:8px;letter-spacing:.05em">🔧 PARTS NEEDED</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${ticket.partsRequired.map(p => `<span class="badge badge-pending">${p}</span>`).join('')}
+          </div>
         </div>` : ''}
 
       ${ticket.resolution ? `
-        <div class="card" style="background:var(--em-pale);border-color:#6EE7B7">
-          <div style="font-size:12px;font-weight:700;color:var(--emerald);margin-bottom:6px">✅ RESOLUTION</div>
+        <div class="card" style="padding:12px 14px;background:var(--em-pale);border-color:#6EE7B7">
+          <div style="font-size:11px;font-weight:700;color:var(--emerald);margin-bottom:6px;letter-spacing:.05em">✅ RESOLUTION</div>
           <div style="font-size:13px;line-height:1.7">${ticket.resolution}</div>
         </div>` : ''}
 
-      <div class="card">
-        <div style="font-size:12px;font-weight:700;color:var(--ink3);margin-bottom:10px">TIMELINE</div>
+      <div class="card" style="padding:12px 14px">
+        <div style="font-size:11px;font-weight:700;color:var(--ink3);margin-bottom:10px;letter-spacing:.05em">TIMELINE</div>
         <div class="timeline">${timelineHtml}</div>
+        <div style="font-size:10px;color:var(--ink3);margin-top:8px;font-family:var(--fm)">${ticket.id} · Created ${new Date(ticket.createdAt).toLocaleString('en-IN')}</div>
       </div>
-
-      ${actionButtons ? `<div style="padding-bottom:20px">${actionButtons}</div>` : ''}
     `;
   },
 
@@ -512,29 +539,55 @@ const Tickets = {
 window.ticketAction = async (action, ticketId) => {
   if (action === 'start') {
     await Tickets.updateStatus(ticketId, 'in_progress', 'Worker started working on ticket');
-    App.showToast('Ticket started');
-  } else if (action === 'resolve') {
-    App.showInputDialog('Resolution', 'Describe what was done to fix the issue:', 'Resolution details', async note => {
-      await Tickets.updateStatus(ticketId, 'resolved', note, { resolution: note });
-      App.showToast('Ticket resolved ✓');
-      App.navigate('worker-home'); Tasks.loadWorkerHome();
-    });
-  } else if (action === 'parts') {
-    App.showInputDialog('Parts Required', 'List the parts you need:', 'e.g. PVC pipe 2 inch, elbow joint', async note => {
-      const parts = note.split(',').map(p => p.trim()).filter(Boolean);
-      await Tickets.updateStatus(ticketId, 'pending_parts', 'Parts required: ' + note, { partsRequired: parts });
-      App.showToast('Supervisor notified about parts');
-    });
-  } else if (action === 'escalate') {
-    App.showInputDialog('Escalate Ticket', 'Why are you escalating this ticket?', 'Reason for escalation', async note => {
-      await Tickets.updateStatus(ticketId, 'reassigned', 'Escalated: ' + note, { escalatedTo: 'supervisor' });
-      App.showToast('Ticket escalated to supervisor');
-      App.navigate('worker-home'); Tasks.loadWorkerHome();
-    });
+    App.showToast('Ticket started — choose an action when done');
   }
-  // Refresh the ticket detail
+  // Refresh the ticket detail in place
   const body = document.getElementById('task-form-body');
   if (body) body.innerHTML = await Tickets.renderTicketDetail(ticketId);
+};
+
+// Preset resolve — one tap, no keyboard
+window.ticketResolvePreset = async (ticketId, resolution) => {
+  await Tickets.updateStatus(ticketId, 'resolved', resolution, { resolution });
+  App.showToast('✅ Resolved: ' + resolution, 3000);
+  App.navigate('worker-home');
+  Tasks.loadWorkerHome();
+};
+
+// Preset parts — one tap adds a part, can tap multiple
+window.ticketPartsPreset = async (ticketId, part) => {
+  const ticket = await Data.get('tickets', ticketId);
+  if (!ticket) return;
+  ticket.partsRequired = ticket.partsRequired || [];
+  if (ticket.partsRequired.includes(part)) {
+    // Toggle off if already selected
+    ticket.partsRequired = ticket.partsRequired.filter(p => p !== part);
+  } else {
+    ticket.partsRequired.push(part);
+  }
+  // Auto-set status to pending_parts if parts selected
+  if (ticket.partsRequired.length > 0 && ticket.status !== 'pending_parts') {
+    ticket.status = 'pending_parts';
+    ticket.timeline = ticket.timeline || [];
+    ticket.timeline.push({ time: new Date().toISOString(), action: 'pending_parts', by: Auth.currentUser?.name || 'Worker', note: 'Parts required: ' + ticket.partsRequired.join(', ') });
+    await Data.set('tickets', ticket);
+    await Notif.send({ toRole:'supervisor', type:'parts_required', title:'🔧 Parts Required — ' + ticket.id, body: Auth.currentUser?.name + ' needs: ' + ticket.partsRequired.join(', '), ticketId });
+    App.showToast('🔧 Supervisor notified — ' + ticket.partsRequired.join(', '), 3000);
+  } else {
+    await Data.set('tickets', ticket);
+    App.showToast(ticket.partsRequired.length > 0 ? '🔧 Parts: ' + ticket.partsRequired.join(', ') : 'Part removed');
+  }
+  // Refresh detail
+  const body = document.getElementById('task-form-body');
+  if (body) body.innerHTML = await Tickets.renderTicketDetail(ticketId);
+};
+
+// Preset escalate — one tap
+window.ticketEscalatePreset = async (ticketId, reason) => {
+  await Tickets.updateStatus(ticketId, 'reassigned', 'Escalated: ' + reason, { escalatedTo: 'supervisor' });
+  App.showToast('⬆ Escalated: ' + reason, 3000);
+  App.navigate('worker-home');
+  Tasks.loadWorkerHome();
 };
 
 window.adminOpenTicket = async (ticketId) => {
