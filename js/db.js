@@ -110,14 +110,16 @@ const Data = {
 
   async set(store, data) {
     const id = data.id || data.recordId;
-    // FIX: Write to Firebase AND local in parallel — don't await Firebase before returning
-    const promises = [];
+    // Always write to local IndexedDB first — this never fails and makes UI instant
+    await IndexDB.put(store, data);
+    this._invalidate(store);
+    // Then try Firebase in background — if it fails (permissions, offline, etc.)
+    // the data is still saved locally and will sync when rules are fixed / connection returns
     if (this._useFirebase) {
-      promises.push(FB.db.collection(store).doc(id).set(data, { merge: true }));
+      FB.db.collection(store).doc(id).set(data, { merge: true }).catch(e => {
+        console.warn(`[Data] Firebase write failed for ${store}/${id} — saved locally only:`, e.message);
+      });
     }
-    promises.push(IndexDB.put(store, data));
-    this._invalidate(store);  // bust cache so next read is fresh
-    await Promise.all(promises);
     return data;
   },
 
