@@ -191,6 +191,21 @@ const Admin = {
           App.showToast('PIN reset for ' + w.name);
         })
       },
+      {
+        label: 'Delete', class: 'btn-danger',
+        action: () => App.showDialog(
+          'Delete ' + w.name + '?',
+          'This will permanently remove the worker. Their past task records will remain.',
+          [{
+            label: 'Yes, Delete', class: 'btn-danger',
+            action: async () => {
+              await Data.delete('workers', workerId);
+              App.showToast(w.name + ' deleted');
+              Admin.renderTab('workers');
+            }
+          }]
+        )
+      },
     ]);
   },
 
