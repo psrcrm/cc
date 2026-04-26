@@ -30,17 +30,30 @@ const Tasks = {
     const today = this.getToday();
 
     // Load both tasks AND tickets
-    const tasks   = await Data.query2('tasks', 'workerId', user.id, 'date', today);
+    let tasks   = await Data.query2('tasks', 'workerId', user.id, 'date', today);
     const tickets = (await Data.getAll('tickets')).filter(t => t.assignedTo === user.id && t.date === today && t.status !== 'closed');
+
+    // FIX 1: Auto-mark missed — any pending task whose dueTime has passed gets marked missed
+    const nowTime = new Date().toTimeString().slice(0, 5); // 'HH:MM'
+    for (const t of tasks) {
+      if (t.status === 'pending' && t.dueTime && t.dueTime < nowTime) {
+        t.status = 'missed';
+        Data.set('tasks', t).catch(() => {}); // fire-and-forget, don't block render
+      }
+    }
 
     tasks.sort((a, b) => a.dueTime.localeCompare(b.dueTime));
     // Emergency tickets first
     tickets.sort((a, b) => (a.priority === 'emergency' ? -1 : b.priority === 'emergency' ? 1 : 0));
 
+    // Store for "next task" feature
+    this._todayTasks = tasks;
+
     const totalTasks   = tasks.length;
     const doneTasks    = tasks.filter(t => t.status === 'completed').length;
     const pendingTasks = tasks.filter(t => t.status === 'pending').length;
     const missedTasks  = tasks.filter(t => t.status === 'missed').length;
+    const overdueCount = tasks.filter(t => t.status === 'pending' && t.dueTime && t.dueTime < nowTime).length;
     const openTickets  = tickets.filter(t => t.status === 'open' || t.status === 'in_progress' || t.status === 'pending_parts').length;
     const doneTickets  = tickets.filter(t => t.status === 'resolved').length;
     const totalAll     = totalTasks + tickets.length;
@@ -59,15 +72,30 @@ const Tasks = {
     `;
 
     // Render combined list
-    this.renderCombinedList(tasks, tickets);
+    this.renderCombinedList(tasks, tickets, nowTime);
     this.activeFilter = 'all';
     document.querySelectorAll('.filter-chip').forEach(c => c.classList.toggle('active', c.dataset.filter === 'all'));
   },
 
-  renderCombinedList(tasks, tickets) {
+  renderCombinedList(tasks, tickets, nowTime) {
+    nowTime = nowTime || new Date().toTimeString().slice(0, 5);
     const list = document.getElementById('task-list');
     const catColors = { Plumbing:'#EBF2FF', Electrical:'#FFFBEB', Housekeeping:'#ECFDF5', Security:'#F5F3FF' };
     let html = '';
+
+    // FIX 3: Summary pill above the list
+    const pending  = tasks.filter(t => t.status === 'pending').length;
+    const overdue  = tasks.filter(t => t.status === 'pending' && t.dueTime && t.dueTime < nowTime).length;
+    const missed   = tasks.filter(t => t.status === 'missed').length;
+    const done     = tasks.filter(t => t.status === 'completed').length;
+    if (tasks.length > 0) {
+      html += `<div style="display:flex;gap:6px;flex-wrap:wrap;padding:10px 16px 2px">
+        ${done    > 0 ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#ECFDF5;color:#059669">${done} done</span>` : ''}
+        ${pending > 0 ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#FFFBEB;color:#D97706">${pending} pending</span>` : ''}
+        ${overdue > 0 ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#FFF1F2;color:#E11D48">${overdue} overdue</span>` : ''}
+        ${missed  > 0 ? `<span style="font-size:11px;font-weight:700;padding:3px 9px;border-radius:20px;background:#F5F3FF;color:#7C3AED">${missed} missed</span>` : ''}
+      </div>`;
+    }
 
     // Section: Tickets (if any)
     if (tickets.length > 0) {
@@ -84,11 +112,15 @@ const Tasks = {
       html += `<div class="task-group-header">📋 Regular Tasks (${tasks.length})</div>
                <div style="background:var(--surface)">`;
       tasks.forEach(t => {
-        html += `<div class="task-item" data-task-id="${t.id}" data-filter="${t.status}">
+        // FIX 2: Overdue = pending task whose dueTime has passed → red accent
+        const isOverdue = t.status === 'pending' && t.dueTime && t.dueTime < nowTime;
+        const overdueStyle = isOverdue ? 'border-left:3px solid #E11D48;' : '';
+        const metaExtra    = isOverdue ? `<span style="color:#E11D48;font-weight:700;margin-left:6px">⚠ Overdue</span>` : '';
+        html += `<div class="task-item" data-task-id="${t.id}" data-filter="${t.status}" style="${overdueStyle}">
           <div class="task-icon" style="background:${catColors[t.category]||'#F6F7F9'}">${t.templateIcon||'📋'}</div>
           <div class="task-info">
             <div class="task-name">${t.templateName}</div>
-            <div class="task-meta">${t.category} · ${t.dueTime}</div>
+            <div class="task-meta">${t.category} · ${t.dueTime}${metaExtra}</div>
           </div>
           <div class="badge badge-${t.status}">${t.status.charAt(0).toUpperCase()+t.status.slice(1)}</div>
           <div class="task-arrow">›</div>
@@ -97,7 +129,7 @@ const Tasks = {
       html += '</div>';
     }
 
-    if (!html) {
+    if (tasks.length === 0 && tickets.length === 0) {
       html = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No tasks or tickets today</div><div>Enjoy your day!</div></div>`;
     }
 
@@ -158,6 +190,29 @@ const Tasks = {
     const body      = document.getElementById('task-form-body');
     const footer    = document.getElementById('task-form-footer');
     const catColors = { Plumbing:'#EBF2FF', Electrical:'#FFFBEB', Housekeeping:'#ECFDF5', Security:'#F5F3FF' };
+
+    // ── Missed — allow late submission ───────────────────────────────────────
+    if (task.status === 'missed') {
+      // Treat exactly like pending — worker can still fill & submit
+      // The submission will record the actual time and note it was late
+      task.status = 'pending'; // reset locally so the form renders normally
+      // Show a late banner at top of form
+      body.innerHTML = `
+        <div style="background:#FFF1F2;border:1.5px solid #E11D48;border-radius:12px;padding:10px 14px;margin-bottom:2px;display:flex;align-items:center;gap:10px">
+          <span style="font-size:18px">⚠️</span>
+          <div>
+            <div style="font-size:13px;font-weight:700;color:#E11D48">Submitting late</div>
+            <div style="font-size:12px;color:#9F1239;margin-top:2px">This task was past its due time. You can still submit it now.</div>
+          </div>
+        </div>`;
+      // Fall through to normal pending rendering below (appending to body)
+      const lateNote = body.innerHTML;
+      body.innerHTML = '';
+      // We'll prepend lateNote after building formHtml — use a flag
+      this._lateBannerHtml = lateNote;
+    } else {
+      this._lateBannerHtml = '';
+    }
 
     // ── Already completed — show read-only summary ────────────────────────────
     if (task.status === 'completed') {
@@ -232,7 +287,7 @@ const Tasks = {
     template.fields.forEach(field => { formHtml += this.renderField(field, false); });
     formHtml += '</div>';
 
-    body.innerHTML = formHtml;
+    body.innerHTML = (this._lateBannerHtml || '') + formHtml;
     this.attachFieldListeners(template.fields);
 
     // Start elapsed timer if already started
@@ -484,12 +539,28 @@ const Tasks = {
         <div class="sync-status ${synced ? 'online' : 'offline'}" style="margin-bottom:20px">
           ${synced ? '✓ Synced to Google Sheets' : '📶 Saved offline — will sync when online'}
         </div>
-        <button class="btn btn-primary btn-full btn-lg" id="back-after-submit">← Back to Tasks</button>
+        <div style="display:flex;gap:8px;width:100%">
+          <button class="btn btn-outline btn-md flex-1" id="back-after-submit">← Home</button>
+          <button class="btn btn-primary btn-md flex-1" id="next-task-btn" style="display:none">Next Task →</button>
+        </div>
       </div>
     `;
     document.getElementById('task-form-footer').innerHTML = '';
     document.getElementById('task-form-badge').className  = 'badge badge-completed';
     document.getElementById('task-form-badge').textContent = 'Completed';
+
+    // FIX 5: Show "Next Task" button if there's a pending task remaining today
+    const remaining = (Tasks._todayTasks || []).filter(t => t.status === 'pending' && t.id !== (Tasks.currentTask?.id));
+    const nextTask  = remaining[0];
+    if (nextTask) {
+      const nextBtn = document.getElementById('next-task-btn');
+      if (nextBtn) {
+        nextBtn.style.display = 'block';
+        nextBtn.textContent   = 'Next: ' + nextTask.templateName.slice(0, 18) + (nextTask.templateName.length > 18 ? '…' : '') + ' →';
+        nextBtn.addEventListener('click', () => Tasks.openTask(nextTask.id));
+      }
+    }
+
     document.getElementById('back-after-submit').addEventListener('click', () => {
       App.navigate('worker-home');
       Tasks.loadWorkerHome();
@@ -507,6 +578,35 @@ const Tasks = {
       list.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-title">No history yet</div></div>`;
       return;
     }
+
+    // FIX 6: Stats summary at the top of history
+    const weekAgo    = new Date(); weekAgo.setDate(weekAgo.getDate() - 7);
+    const weekStr    = weekAgo.toISOString().split('T')[0];
+    const weekTasks  = past.filter(t => t.date >= weekStr);
+    const weekDone   = weekTasks.filter(t => t.status === 'completed').length;
+    const weekTotal  = weekTasks.length;
+    const weekPct    = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0;
+    const durations  = past.filter(t => t.durationMins != null).map(t => t.durationMins);
+    const avgDur     = durations.length ? Math.round(durations.reduce((a,b) => a+b, 0) / durations.length) : null;
+    const allDone    = past.filter(t => t.status === 'completed').length;
+    const allTotal   = past.length;
+    const allPct     = allTotal > 0 ? Math.round(allDone / allTotal * 100) : 0;
+
+    list.innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;padding:12px 14px 4px">
+        <div style="background:var(--surface);border-radius:12px;padding:10px 12px;text-align:center;border:1px solid var(--line)">
+          <div style="font-size:20px;font-weight:700;color:var(--emerald)">${weekPct}%</div>
+          <div style="font-size:10px;color:var(--ink3);font-weight:600;margin-top:2px">THIS WEEK</div>
+        </div>
+        <div style="background:var(--surface);border-radius:12px;padding:10px 12px;text-align:center;border:1px solid var(--line)">
+          <div style="font-size:20px;font-weight:700;color:var(--blue)">${avgDur != null ? avgDur + 'm' : '—'}</div>
+          <div style="font-size:10px;color:var(--ink3);font-weight:600;margin-top:2px">AVG TIME</div>
+        </div>
+        <div style="background:var(--surface);border-radius:12px;padding:10px 12px;text-align:center;border:1px solid var(--line)">
+          <div style="font-size:20px;font-weight:700;color:var(--ink)">${allPct}%</div>
+          <div style="font-size:10px;color:var(--ink3);font-weight:600;margin-top:2px">ALL TIME</div>
+        </div>
+      </div>`;
 
     // Group by date
     const grouped = {};
@@ -536,7 +636,7 @@ const Tasks = {
       });
       html += `</div>`;
     }
-    list.innerHTML = html;
+    list.innerHTML += html;
   },
 
   renderWorkerSettings() {
