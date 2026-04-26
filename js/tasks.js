@@ -6,7 +6,7 @@ const Tasks = {
   formData: {},
   capturedImages: {},
   activeFilter: 'all',
-  taskStartedAt: null,   // timestamp when worker taps Start
+  taskStartedAt: null,   // timestamp when worker opens task (auto-start)
 
   getToday() {
     return new Date().toISOString().split('T')[0];
@@ -242,99 +242,69 @@ const Tasks = {
       return;
     }
 
-    // ── Pending / in-progress — show Start button first ───────────────────────
-    const alreadyStarted = !!task.startedAt;
-    if (alreadyStarted) {
-      // Worker opened task before but didn't submit yet — restore start time
+    // ── Pending / in-progress / missed — timer auto-starts on open ─────────────
+    // No separate "Start" button needed — opening the task IS starting it.
+    const now = new Date();
+    const resuming = !!task.startedAt; // worker re-opened a task they already began
+
+    if (resuming) {
       this.taskStartedAt = task.startedAt;
+    } else {
+      // Auto-start: record start time immediately
+      this.taskStartedAt  = now.toISOString();
+      task.startedAt      = this.taskStartedAt;
+      task.status         = 'in_progress';
+      Data.set('tasks', task).catch(() => {}); // persist in background
     }
+
+    const startDisplay = new Date(this.taskStartedAt)
+      .toLocaleTimeString('en-IN', {hour:'2-digit', minute:'2-digit', second:'2-digit'});
 
     let formHtml = `
       <div class="task-header-info" style="background:${catColors[task.category] || '#F6F7F9'}">
         <div class="task-header-icon">${template.icon}</div>
         <div class="task-header-meta">
           <div class="cat">${task.category} · Due ${task.dueTime}</div>
-          <div class="time" id="task-timer-label">${alreadyStarted ? '▶ In progress — fill the form and submit' : 'Tap Start to begin this task'}</div>
+          <div class="time">▶ In progress — fill and tap Done</div>
         </div>
       </div>`;
 
-    // Time tracker bar
+    // Compact time bar — start time + live elapsed counter
     formHtml += `
-      <div class="card" id="task-time-card" style="padding:12px 14px">
-        <div style="display:flex;align-items:center;justify-content:space-between">
-          <div>
-            <div style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.05em">START TIME</div>
-            <div style="font-size:18px;font-weight:700;font-family:var(--fm);color:var(--ink)" id="start-time-display">
-              ${alreadyStarted ? new Date(task.startedAt).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—'}
-            </div>
+      <div class="card" id="task-time-card" style="padding:10px 14px">
+        <div style="display:flex;align-items:center;gap:16px">
+          <div style="flex:1">
+            <div style="font-size:10px;font-weight:700;color:var(--ink3);letter-spacing:.05em;margin-bottom:2px">STARTED</div>
+            <div style="font-size:16px;font-weight:700;font-family:var(--fm);color:var(--ink)" id="start-time-display">${startDisplay}</div>
           </div>
-          <div style="font-size:24px;color:var(--ink3)" id="task-arrow-ico">→</div>
-          <div style="text-align:right">
-            <div style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.05em">END TIME</div>
-            <div style="font-size:18px;font-weight:700;font-family:var(--fm);color:var(--ink)" id="end-time-display">—</div>
-          </div>
-          <div style="text-align:right;margin-left:16px">
-            <div style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.05em">ELAPSED</div>
-            <div style="font-size:18px;font-weight:700;font-family:var(--fm);color:var(--blue)" id="elapsed-display">
-              ${alreadyStarted ? '…' : '0:00'}
-            </div>
+          <div style="font-size:20px;color:var(--ink3)">→</div>
+          <div style="flex:1;text-align:right">
+            <div style="font-size:10px;font-weight:700;color:var(--ink3);letter-spacing:.05em;margin-bottom:2px">ELAPSED</div>
+            <div style="font-size:16px;font-weight:700;font-family:var(--fm);color:var(--blue)" id="elapsed-display">0:00</div>
           </div>
         </div>
       </div>`;
 
-    // Form fields (disabled until started)
-    formHtml += `<div class="card" id="task-fields-card" style="${!alreadyStarted ? 'opacity:.45;pointer-events:none' : ''}">`;
+    // Form fields — immediately active, no disabled state
+    formHtml += `<div class="card" id="task-fields-card">`;
     template.fields.forEach(field => { formHtml += this.renderField(field, false); });
     formHtml += '</div>';
 
     body.innerHTML = (this._lateBannerHtml || '') + formHtml;
     this.attachFieldListeners(template.fields);
 
-    // Start elapsed timer if already started
-    if (alreadyStarted) {
-      this._startElapsedTimer();
-    }
-
-    // ── Footer buttons ─────────────────────────────────────────────────────────
-    if (!alreadyStarted) {
-      footer.innerHTML = `<button id="start-task-btn" class="btn btn-primary btn-full btn-lg">▶  Start Task</button>`;
-      document.getElementById('start-task-btn').addEventListener('click', () => this.startTask());
-    } else {
-      footer.innerHTML = `<button id="submit-task-btn" class="btn btn-success btn-full btn-lg">✅  Submit Task</button>`;
-      document.getElementById('submit-task-btn').addEventListener('click', () => this.submitTask());
-    }
-
-    App.navigate('task-form');
-  },
-
-  // ── Start task — record start time ─────────────────────────────────────────
-  async startTask() {
-    const now  = new Date();
-    const task = this.currentTask;
-    this.taskStartedAt  = now.toISOString();
-    task.startedAt      = this.taskStartedAt;
-    task.status         = 'in_progress';
-    await Data.set('tasks', task);
-
-    // Update UI
-    document.getElementById('start-time-display').textContent =
-      now.toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-    document.getElementById('task-timer-label').textContent = '▶ In progress — fill the form and submit';
-    const fields = document.getElementById('task-fields-card');
-    if (fields) { fields.style.opacity='1'; fields.style.pointerEvents='auto'; }
-
-    // Swap footer button
-    document.getElementById('task-form-footer').innerHTML =
-      `<button id="submit-task-btn" class="btn btn-success btn-full btn-lg">✅  Submit Task</button>`;
-    document.getElementById('submit-task-btn').addEventListener('click', () => this.submitTask());
-
-    // Update badge
-    const badge = document.getElementById('task-form-badge');
+    // Badge shows in-progress
     badge.className  = 'badge badge-blue';
     badge.textContent = 'In Progress';
 
+    // Start live elapsed timer immediately
     this._startElapsedTimer();
-    App.showToast('Task started — timer running');
+
+    // Single action button: Done ✓
+    footer.innerHTML = `<button id="submit-task-btn" class="btn btn-success btn-full btn-lg">✓  Done</button>`;
+    document.getElementById('submit-task-btn').addEventListener('click', () => this.submitTask());
+
+    App.navigate('task-form');
   },
 
   // ── Live elapsed timer ─────────────────────────────────────────────────────
@@ -498,72 +468,34 @@ const Tasks = {
       App.showToast('Submitted & synced ✓');
     }
 
-    this.showSuccess(recordId, submission.synced, startedAt, endedAt, durationMins);
+    this.showSuccess(submission.synced, durationMins);
   },
 
-  showSuccess(recordId, synced, startedAt, endedAt, durationMins) {
-    const body = document.getElementById('task-form-body');
-    const fmtTime = iso => iso ? new Date(iso).toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'}) : '—';
+  showSuccess(synced, durationMins) {
+    // No success screen — toast with duration, then immediately advance
     const durLabel = durationMins != null
-      ? (durationMins < 60
-          ? durationMins + ' min'
-          : Math.floor(durationMins/60) + 'h ' + (durationMins%60) + 'm')
-      : '—';
+      ? (durationMins < 60 ? durationMins + 'm' : Math.floor(durationMins/60) + 'h ' + (durationMins%60) + 'm')
+      : '';
+    const taskName = this.currentTemplate?.name || 'Task';
+    const justCompletedId = this.currentTask?.id;
 
-    body.innerHTML = `
-      <div class="success-screen">
-        <div class="success-icon">✅</div>
-        <div class="success-title">Task Submitted!</div>
-        <div class="success-sub">${this.currentTemplate?.name || 'Task'} · Saved successfully</div>
-        <div class="record-id">${recordId}</div>
+    App.showToast(durLabel ? `✓ ${taskName} — ${durLabel}` : `✓ ${taskName} done`, 2500);
 
-        <div style="background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:14px;width:100%;margin-bottom:12px;text-align:left">
-          <div style="font-size:11px;font-weight:700;color:var(--ink3);letter-spacing:.06em;margin-bottom:10px">TIME RECORD</div>
-          <div style="display:flex;justify-content:space-around;text-align:center">
-            <div>
-              <div style="font-size:11px;color:var(--ink3);font-weight:600;margin-bottom:4px">STARTED</div>
-              <div style="font-size:16px;font-weight:700;font-family:var(--fm);color:var(--ink)">${fmtTime(startedAt)}</div>
-            </div>
-            <div style="color:var(--ink3);font-size:20px;padding-top:8px">→</div>
-            <div>
-              <div style="font-size:11px;color:var(--ink3);font-weight:600;margin-bottom:4px">ENDED</div>
-              <div style="font-size:16px;font-weight:700;font-family:var(--fm);color:var(--ink)">${fmtTime(endedAt)}</div>
-            </div>
-            <div style="border-left:1px solid var(--line);padding-left:16px">
-              <div style="font-size:11px;color:var(--ink3);font-weight:600;margin-bottom:4px">DURATION</div>
-              <div style="font-size:16px;font-weight:700;font-family:var(--fm);color:var(--blue)">${durLabel}</div>
-            </div>
-          </div>
-        </div>
-
-        <div class="sync-status ${synced ? 'online' : 'offline'}" style="margin-bottom:20px">
-          ${synced ? '✓ Synced to Google Sheets' : '📶 Saved offline — will sync when online'}
-        </div>
-        <div style="display:flex;gap:8px;width:100%">
-          <button class="btn btn-outline btn-md flex-1" id="back-after-submit">← Home</button>
-          <button class="btn btn-primary btn-md flex-1" id="next-task-btn" style="display:none">Next Task →</button>
-        </div>
-      </div>
-    `;
-    document.getElementById('task-form-footer').innerHTML = '';
-    document.getElementById('task-form-badge').className  = 'badge badge-completed';
-    document.getElementById('task-form-badge').textContent = 'Completed';
-
-    // FIX 5: Show "Next Task" button if there's a pending task remaining today
-    const remaining = (Tasks._todayTasks || []).filter(t => t.status === 'pending' && t.id !== (Tasks.currentTask?.id));
-    const nextTask  = remaining[0];
-    if (nextTask) {
-      const nextBtn = document.getElementById('next-task-btn');
-      if (nextBtn) {
-        nextBtn.style.display = 'block';
-        nextBtn.textContent   = 'Next: ' + nextTask.templateName.slice(0, 18) + (nextTask.templateName.length > 18 ? '…' : '') + ' →';
-        nextBtn.addEventListener('click', () => Tasks.openTask(nextTask.id));
+    // Reload home so _todayTasks reflects the just-completed task,
+    // then auto-advance to next pending task (or go home if all done)
+    Tasks.loadWorkerHome().then(() => {
+      const nextTask = (Tasks._todayTasks || []).find(
+        t => t.status === 'pending' && t.id !== justCompletedId
+      );
+      if (nextTask) {
+        Tasks.openTask(nextTask.id);
+      } else {
+        App.navigate('worker-home');
+        // All done — celebrate
+        if ((Tasks._todayTasks || []).every(t => t.status === 'completed')) {
+          setTimeout(() => App.showToast('🎉 All tasks done for today!', 4000), 300);
+        }
       }
-    }
-
-    document.getElementById('back-after-submit').addEventListener('click', () => {
-      App.navigate('worker-home');
-      Tasks.loadWorkerHome();
     });
   },
 
