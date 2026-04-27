@@ -67,8 +67,10 @@ const Auth = {
 
   logout() {
     this.currentUser = null;
-    if (typeof Notif !== 'undefined') Notif.stop();
-    if (typeof Data  !== 'undefined') Data.unsubscribeAll();
+    if (typeof Notif  !== 'undefined') Notif.stop();
+    if (typeof Data   !== 'undefined') Data.unsubscribeAll();
+    if (typeof Tasks  !== 'undefined') Tasks.stopLiveTaskSync?.();
+    if (typeof Admin  !== 'undefined') Admin.stopLiveSync?.();
     IndexDB.setSetting('lastUserId',   null);
     IndexDB.setSetting('lastUserData', null);
   },
@@ -124,8 +126,14 @@ function initPinPad() {
       const user = await Auth.login(mobile, pin);
       pin = ''; updateDots();
       if (typeof Notif !== 'undefined') await Notif.init(user.id);
-      if (Auth.isAdmin()) { App.navigate('admin-home'); Admin.init(); }
-      else                { App.navigate('worker-home'); Tasks.loadWorkerHome(); }
+      if (Auth.isAdmin()) {
+        App.navigate('admin-home');
+        Admin.init();                          // starts live sync for all admin devices
+      } else {
+        App.navigate('worker-home');
+        Tasks.loadWorkerHome();
+        Tasks.startLiveTaskSync(user.id);      // worker sees new task assignments live
+      }
     } catch(e) {
       errEl.textContent = e.message;
       pin = ''; updateDots();
