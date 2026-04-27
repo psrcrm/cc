@@ -25,6 +25,36 @@ const Tasks = {
     return 'Good evening';
   },
 
+  _liveTaskUnsub: null,
+
+  // ── Start real-time listener for this worker's tasks ─────────────────────
+  // Called once after login. Any change on any device (e.g. admin assigns
+  // a new task) will auto-refresh the worker's home screen.
+  startLiveTaskSync(userId) {
+    if (!Data._useFirebase) return;
+    if (this._liveTaskUnsub) { this._liveTaskUnsub(); this._liveTaskUnsub = null; }
+    const today = this.getToday();
+    this._liveTaskUnsub = FB.db.collection('tasks')
+      .where('workerId', '==', userId)
+      .where('date', '==', today)
+      .onSnapshot(snap => {
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        // Merge into cache
+        const cache = Data._cache['tasks'] || [];
+        docs.forEach(doc => {
+          const idx = cache.findIndex(t => t.id === doc.id);
+          if (idx >= 0) cache[idx] = doc; else cache.push(doc);
+        });
+        Data._cache['tasks'] = cache;
+        // Refresh home if currently visible
+        if (App.currentScreen === 'worker-home') Tasks.loadWorkerHome();
+      }, err => console.warn('[Tasks] Live sync error:', err.message));
+  },
+
+  stopLiveTaskSync() {
+    if (this._liveTaskUnsub) { this._liveTaskUnsub(); this._liveTaskUnsub = null; }
+  },
+
   async loadWorkerHome() {
     const user  = Auth.currentUser;
     const today = this.getToday();
