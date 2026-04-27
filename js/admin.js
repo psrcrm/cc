@@ -6,6 +6,8 @@ const Admin = {
   _assignWorkers: [],
   _renderFieldsList: null,
 
+  _liveUnsubs: [],   // Firestore real-time listener unsubscribe functions
+
   init() {
     document.querySelectorAll('.admin-tab').forEach(tab => {
       tab.addEventListener('click', () => {
@@ -16,9 +18,79 @@ const Admin = {
       });
     });
     document.getElementById('admin-logout-btn').addEventListener('click', () => {
-      Auth.logout(); App.navigate('login');
+      this.stopLiveSync();
+      Auth.logout();
+      App.navigate('login');
     });
     this.renderTab('dashboard');
+    // Start real-time sync so all admin devices stay in sync automatically
+    this.startLiveSync();
+  },
+
+  // ── Real-time Firestore listeners — keep all admin devices in sync ──────────
+  startLiveSync() {
+    if (!Data._useFirebase) return;
+
+    // Debounce: avoid re-rendering the same tab multiple times in quick succession
+    let debounceTimer = null;
+    const debounced = (fn) => {
+      clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(fn, 400);
+    };
+
+    const collections = ['workers', 'tasks', 'tickets', 'templates'];
+    collections.forEach(col => {
+      const unsub = FB.db.collection(col).onSnapshot(snap => {
+        // Update in-memory cache directly from Firestore snapshot
+        const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+        Data._cache[col] = docs;
+        // Also warm IndexedDB cache in background
+        docs.forEach(doc => IndexDB.put(col, doc).catch(() => {}));
+
+        // Re-render whichever admin tab is currently open
+        debounced(() => {
+          const tabsMap = {
+            workers:   'workers',
+            tasks:     'dashboard',
+            tickets:   'tickets',
+            templates: 'templates',
+          };
+          const targetTab = tabsMap[col];
+          if (targetTab && Admin.currentTab === targetTab) {
+            Admin.renderTab(targetTab);
+          }
+          // Dashboard always re-renders on tasks or tickets change
+          if ((col === 'tasks' || col === 'tickets') && Admin.currentTab === 'dashboard') {
+            Admin.renderTab('dashboard');
+          }
+          // Update notification badge for tickets
+          if (col === 'tickets') Admin._updateNotifBadge(docs);
+        });
+      }, err => {
+        console.warn('[Admin] Live sync error for', col, ':', err.message);
+      });
+      this._liveUnsubs.push(unsub);
+    });
+
+    console.log('[Admin] Live sync started for', collections.join(', '));
+  },
+
+  stopLiveSync() {
+    this._liveUnsubs.forEach(u => { try { u(); } catch(e) {} });
+    this._liveUnsubs = [];
+  },
+
+  // Update the notification badge in the topbar with open/emergency ticket count
+  _updateNotifBadge(tickets) {
+    const badge = document.getElementById('notif-badge');
+    if (!badge) return;
+    const urgent = (tickets || []).filter(t =>
+      t.status !== 'resolved' && t.status !== 'closed' &&
+      (t.priority === 'emergency' || t.status === 'pending_parts' || t.status === 'reassigned')
+    ).length;
+    badge.textContent = urgent;
+    badge.style.display = urgent > 0 ? 'flex' : 'none';
+    badge.title = urgent + ' ticket(s) need attention';
   },
 
   async renderTab(tab) {
