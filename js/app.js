@@ -185,8 +185,14 @@ const App = {
     if (user) {
       Notif.init(user.id).catch(()=>{});
       setTimeout(() => {
-        if (Auth.isAdmin()) { App.navigate('admin-home'); Admin.init(); }
-        else                { App.navigate('worker-home'); Tasks.loadWorkerHome(); }
+        if (Auth.isAdmin()) {
+          App.navigate('admin-home');
+          Admin.init();              // Admin.init() now calls startLiveSync internally
+        } else {
+          App.navigate('worker-home');
+          Tasks.loadWorkerHome();
+          Tasks.startLiveTaskSync(user.id);   // worker sees new task assignments live
+        }
       }, 600);
     } else {
       setTimeout(() => App.navigate('login'), 600);
